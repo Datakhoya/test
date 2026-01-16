@@ -12,7 +12,7 @@ def extract_text_from_pdf(file):
     return text
 
 def analyze_cv(cv_text, job_desc, api_key):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
     data = {
         "contents": [{"parts": [{"text": f"Tu es recruteur. Analyse ce CV pour ce poste.\nPOSTE: {job_desc}\nCV: {cv_text}\nRéponds en JSON: {{'nom': '...', 'score': 0-100, 'avis': '...'}}"}]}]
