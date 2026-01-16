@@ -5,7 +5,7 @@ from PyPDF2 import PdfReader
 
 # --- CONFIGURATION ---
 # On utilise le modèle le plus standard et stable
-MODEL_NAME = "gemini-1.5-flash"
+MODEL_NAME = "gemini-pro"
 
 def extract_text_from_pdf(file):
     try:
