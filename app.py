@@ -3,97 +3,94 @@ import requests
 import json
 from PyPDF2 import PdfReader
 
-# --- CONFIGURATION ---
-# On utilise le modèle le plus standard et stable
-MODEL_NAME = "gemini-pro"
+# --- FONCTIONS ---
+
+def get_available_models(api_key):
+    """Demande à Google la liste exacte des modèles disponibles pour CETTE clé."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            models = response.json().get('models', [])
+            # On ne garde que les modèles capables de générer du texte (generateContent)
+            chat_models = [m['name'].replace('models/', '') for m in models if 'generateContent' in m.get('supportedGenerationMethods', [])]
+            return chat_models
+        else:
+            return []
+    except:
+        return []
 
 def extract_text_from_pdf(file):
     try:
         pdf = PdfReader(file)
         text = ""
         for page in pdf.pages:
-            if page.extract_text():
-                text += page.extract_text()
+            if page.extract_text(): text += page.extract_text()
         return text
-    except Exception as e:
-        return f"Erreur lecture PDF: {str(e)}"
+    except: return ""
 
-def analyze_cv(cv_text, job_desc, api_key):
-    # URL mise à jour pour le modèle 1.5 Flash
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL_NAME}:generateContent?key={api_key}"
+def analyze_cv(model_name, cv_text, job_desc, api_key):
+    # On utilise le modèle choisi par l'utilisateur
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
     headers = {'Content-Type': 'application/json'}
     
-    # Prompt simplifié et robuste
     prompt = f"""
-    Analyse ce CV pour le poste ci-dessous.
-    POSTE: {job_desc}
+    Analyse ce CV pour le poste.
+    OFFRE: {job_desc}
     CV: {cv_text}
-    
-    Réponds UNIQUEMENT avec ce JSON strict:
-    {{
-        "nom": "Nom du candidat",
-        "score": 50,
-        "avis": "Ton avis en une phrase",
-        "points_forts": ["point 1", "point 2"],
-        "points_faibles": ["point 1", "point 2"]
-    }}
+    Réponds UNIQUEMENT avec ce JSON : {{"nom": "Nom", "score": 50, "avis": "Avis court", "points_forts": ["A", "B"], "points_faibles": ["C", "D"]}}
     """
     
-    data = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
+    data = {"contents": [{"parts": [{"text": prompt}]}]}
 
     try:
         response = requests.post(url, headers=headers, data=json.dumps(data))
-        
-        # SI ERREUR GOOGLE (404, 400, etc.)
         if response.status_code != 200:
-            return {"error": True, "details": f"Erreur Google ({response.status_code}): {response.text}"}
-            
-        # SI SUCCÈS
-        result_json = response.json()
-        raw_text = result_json['candidates'][0]['content']['parts'][0]['text']
-        clean_json = raw_text.strip().replace("```json", "").replace("```", "")
-        return json.loads(clean_json)
+            return {"error": True, "details": response.text}
         
+        clean_json = response.json()['candidates'][0]['content']['parts'][0]['text'].replace("```json", "").replace("```", "").strip()
+        return json.loads(clean_json)
     except Exception as e:
-        return {"error": True, "details": f"Erreur Python : {str(e)}"}
+        return {"error": True, "details": str(e)}
 
 # --- INTERFACE ---
-st.set_page_config(layout="wide")
-st.title("🤖 Recruteur IA v2 (Debug Mode)")
+st.set_page_config(layout="wide", page_title="Diagnostiqueur IA")
 
-# Vérification Clé API
-api_key = st.text_input("Votre Clé API Gemini", type="password")
+st.title("🛠️ Comparateur de CV - Mode Diagnostique")
+st.info("Ce mode va scanner votre clé API pour trouver le bon modèle.")
 
-col1, col2 = st.columns(2)
-with col1: 
-    job = st.text_area("Description du poste", height=200)
-with col2: 
-    cv = st.file_uploader("CV (PDF)", type="pdf")
+# 1. Entrée de la Clé
+api_key = st.text_input("1. Collez votre Clé API ici", type="password")
 
-if st.button("Lancer l'analyse"):
-    if not api_key or not job or not cv:
-        st.warning("Il manque des informations (Clé, Poste ou CV).")
+selected_model = None
+
+# 2. Détection automatique des modèles
+if api_key:
+    models = get_available_models(api_key)
+    if models:
+        st.success(f"✅ Clé valide ! {len(models)} modèles trouvés.")
+        # Liste déroulante pour choisir le modèle
+        selected_model = st.selectbox("2. Choisissez un modèle dans la liste :", models, index=0)
     else:
-        with st.spinner("Analyse en cours..."):
-            cv_text = extract_text_from_pdf(cv)
-            res = analyze_cv(cv_text, job, api_key)
-            
-            # Affichage des résultats ou de l'erreur précise
-            if "error" in res:
-                st.error("❌ OUPS, UNE ERREUR EST SURVENUE")
-                st.code(res["details"]) # Affiche le message technique exact
-            else:
-                st.balloons()
-                st.header(f"Note : {res.get('score', 0)}/100")
-                st.subheader(f"Candidat : {res.get('nom', 'Inconnu')}")
-                st.info(res.get('avis'))
-                
-                c1, c2 = st.columns(2)
-                with c1:
-                    st.success("Points Forts")
-                    for p in res.get('points_forts', []): st.write(f"- {p}")
-                with c2:
-                    st.error("Points Faibles")
-                    for p in res.get('points_faibles', []): st.write(f"- {p}")
+        st.error("❌ Impossible de trouver des modèles. Vérifiez que la clé est bien copiée (sans espaces).")
+
+# 3. L'application standard
+col1, col2 = st.columns(2)
+with col1: job = st.text_area("Description du poste")
+with col2: cv = st.file_uploader("CV (PDF)", type="pdf")
+
+if st.button("Lancer l'analyse") and api_key and selected_model and job and cv:
+    with st.spinner(f"Analyse avec le modèle {selected_model}..."):
+        cv_text = extract_text_from_pdf(cv)
+        res = analyze_cv(selected_model, cv_text, job, api_key)
+        
+        if "error" in res:
+            st.error(f"Erreur : {res['details']}")
+        else:
+            st.markdown("---")
+            st.header(f"Score : {res.get('score')}/100")
+            st.subheader(res.get('nom'))
+            st.write(res.get('avis'))
+            c1, c2 = st.columns(2)
+            c1.success("\n".join([f"- {p}" for p in res.get('points_forts', [])]))
+            c2.error("\n".join([f"- {p}" for p in res.get('points_faibles', [])]))
